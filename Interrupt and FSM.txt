@@ -1,0 +1,107 @@
+// sentinel variables
+volatile int IRled = 0;
+volatile int WIFIdata = 0;
+volatile int Water = 0;
+
+/* UART FSM States */
+typedef enum
+{
+  IDLE = 0U,
+  START,
+  RUN,
+  INTERRUPT
+} UART_State_t;
+
+UART_State_t txState = IDLE; // State register
+
+/* FSM state transition */
+void uart_state_machine()
+{
+  switch (txState)
+  {
+    case START:
+      // Process map 
+      // set PWM and Pump rate
+      txState = RUN;
+      break;
+    
+    case RUN:
+      Serial.println("Run state");
+      delay(100);
+      break;
+    
+    case INTERRUPT:
+      txState = RUN;
+      if (IRled == 1) {
+         IRledHandler();
+         IRled = 0;
+      }
+      if (WIFIdata == 1) {
+        WIFIdataHandler();
+        WIFIdata = 0;
+      }
+      if (Water == 1) {
+        WaterHandler();
+        Water = 0;
+      }
+      break;
+    
+    case IDLE:
+      Serial.println("IDLE state");
+      delay(100);
+      break;
+    default:
+      break;
+  }
+}
+
+void IRledHandler() {
+  // send signal over wifi
+  Serial.println("IR led handler triggered!");
+  txState = IDLE;
+}
+void WIFIdataHandler() {
+  //if initial data received
+  // txState = Start;
+  //if handling data received
+  // determine handler and change to appropriate state
+   Serial.println("WIFI handler triggered!");
+  txState = RUN;
+}
+void WaterHandler() {
+  // send signal over wifi
+  Serial.println("Water handler triggered!");
+  txState = RUN;
+}
+
+void ISR_func_IRled() {
+  IRled = 1;
+  txState = INTERRUPT;
+}
+void ISR_func_WIFIdata() {
+  WIFIdata = 1;
+  txState = INTERRUPT;
+}
+void ISR_func_Water() {
+  Water = 1;
+  txState = INTERRUPT;
+}
+void setup() {
+  Serial.begin(9600);
+  // DUE does not allow INOUT port so these pins are connected together via a wire so that output of 24 
+  // can be read by pin 26, etc. 
+  pinMode(24, OUTPUT);
+  pinMode(26, INPUT);
+  pinMode(30, OUTPUT);
+  pinMode(32,INPUT);
+  pinMode(36, OUTPUT);
+  pinMode(38,INPUT);
+  attachInterrupt(26, ISR_func_IRled, RISING);
+  attachInterrupt(38, ISR_func_WIFIdata, RISING);
+  attachInterrupt(32, ISR_func_Water, RISING);
+
+}
+
+void loop() {
+  uart_state_machine();
+}
