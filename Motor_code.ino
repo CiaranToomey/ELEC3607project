@@ -8,7 +8,7 @@
 #define		TC2_SYNC					(*(WoReg*) 0x400880C0)		//the address of the sync register used to force TC2 to synchronise all it's channels
 
 #define		TIMER_COUNTER1 				41999026		//clock 1 = MCK/2
-#define		FREQ			 			100000		//100KHz PWM signal desired for the motors
+#define		FREQ			 			32000		//100KHz PWM signal desired for the motors
 #define		LEFT_TC						TC0			// TC number
 #define		RIGHT_TC					TC2			// TC number
 
@@ -37,7 +37,17 @@
 #define		PUMP_PIOPIN					7			// Peripheral D channel number digital pin 11
 #define		PUMP_RA						(*(WoReg*) 0x40088094)		//the address of the RA register used to control the duty cycle of TC2 CH2
 
-unsigned int RC_clk = TIMER_COUNTER1 / FREQ;			//This is the value that RC needs to be to create the frequency
+//Declaring the pins required to read feedback. Different pins are used for forward and reverse
+int leftForwardSensorPin = A0;
+int leftReverseSensorPin = A1;
+int rightForwardSensorPin = A2;
+int rightReverseSensorPin = A3;
+
+unsigned int RC_clk = TIMER_COUNTER1 / FREQ;			//This is the value that RC needs to be to create the specified frequency
+int setDutyCycle = 50;
+int leftFloatingDutyCycle = 50;
+int rightFloatingDutyCycle = 50;
+int direction = 0;							//0 means forward, 1 means reverse
 
 //parametre tc_num is a pointer to a Tc instance, parametre complementry identifies if it needs to set up a complementry waveform. If < 0 it's complementry,
 //if > 0 it's not and if == 0 it doesn't matter i.e. for the pump
@@ -109,16 +119,10 @@ void setup() {
 	pwmwave(50, RIGHT_MOTOR_COMP_CHAN, RIGHT_TC, 1);
 	pwmwave(0, PUMP_CHAN, RIGHT_TC, 0);
 
-	//TC_Start(LEFT_TC, LEFT_MOTOR_CHAN);
-	//TC_Start(LEFT_TC, LEFT_MOTOR_COMP_CHAN);
-	//TC_Start(RIGHT_TC, LEFT_MOTOR_CHAN);
-	//TC_Start(RIGHT_TC, LEFT_MOTOR_COMP_CHAN);
-	//TC_Start(RIGHT_TC, PUMP_CHAN);
-
 	//Synchronise all channels from the timer counter specified
 	TC0_SYNC = 1;
 	TC2_SYNC = 1;
-
+  
 }
 
 //puts the left track in reverse and the right in forward for a period and then sets them back at their original values
@@ -172,13 +176,20 @@ void stop_pump() {
 	
 }
 
-void start_motors(unsigned int duty) {
+//if motorSelect = 0, change the duty cycle of the left motor. If motorSelect = 1 change the duty cycle of the right motor. If motorSelect = 2, change the duty cycle of both motors
+void start_motors(unsigned int duty, int motorSelect) {
 	
 	double duty_cycle = (double)duty*RC_clk/100;
-	LEFT_MOTOR_RA = duty_cycle;
-	LEFT_MOTOR_COMP_RA = duty_cycle;
-	RIGHT_MOTOR_RA = duty_cycle;
-	RIGHT_MOTOR_COMP_RA = duty_cycle;
+	
+	if (motorSelect == 0) || (motorSelect == 2){
+		LEFT_MOTOR_RA = duty_cycle;
+		LEFT_MOTOR_COMP_RA = duty_cycle;
+	}
+	
+	if (motorSelect == 1) || (motorSelect == 2){
+		RIGHT_MOTOR_RA = duty_cycle;
+		RIGHT_MOTOR_COMP_RA = duty_cycle;
+	}
 	
 }
 
@@ -204,13 +215,134 @@ void start_pump(unsigned int duty) {
 //	dreg(" RC: ", LEFT_TC->TC_CHANNEL[LEFT_MOTOR_CHAN].TC_RC);
 //}
 
+//If motorSelect = 0, controls the feedback for the left motor. If motorSelect = 1, controls the feedback for the right motor
+void feedback(float val, int motorSelect) {
+
+	int floatingDutyCycle = 0;
+	
+	if (motorSelect == 0){
+		floatingDutyCycle = leftFloatingDutyCycle;
+	} else {
+		floatingDutyCycle = rightFloatingDutyCycle;
+	}
+
+	int localDuty = floatingDutyCycle;
+	double lower = 0;
+	double upper = 0;
+
+//The switch statement determines the upper and lower limits of the feedback required for a given duty cycle
+	switch(setDutyCycle) {
+		case 70:
+			lower = 0.35;
+			upper = 0.45;
+			break;
+		case 75:
+			lower = 0.9;
+			upper = 1.1;
+			break;
+		case 80:
+			lower = 1.8;
+			upper = 2;
+			break;
+		case 20:
+			lower = 1.9;
+			upper = 2;
+			break;
+		case 25:
+			lower = 1.15;
+			upper = 1.35;
+			break;
+		case 30:
+			lower = 0.7;
+			upper = 0.8;
+			break;
+		default:
+			break;
+	}
+
+	//Checks to see if the feedback is greater than the upper bound and if the tractor is travelling forward reduce the duty cycle else increase it
+	if (val > upper) {
+		if (direction == 0){
+			localDuty = floatingDutyCycle - 1;
+		} else {
+			localDuty = floatingDutyCycle + 1;
+		}
+
+	//Checks to see if the feedback is less than the lower bound and if the tractor is travelling forward increase the duty cycle else decrease it
+	} else if(val < lower) {
+		if (direction == 0) {
+			localDuty = floatingDutyCycle + 1; 
+		} else {
+			localDuty = floatingDutyCycle - 1; 
+		}
+	}
+
+	//If the change in duty cycle is outside the limits of 20%-80% keep it with the bounds
+	if (localDuty > 80) {
+		localDuty = 80;
+	}
+	if (localDuty < 20) {
+		localDuty = 20;
+	}
+
+	//adjust the speed of the motors and update the global variable floatingDutyCycle
+	start_motors(localDuty, motorSelect);
+	
+	if (motorSelect == 0){
+		leftFloatingDutyCycle = localDuty;
+	} else {
+		rightFloatingDutyCycle = localDuty;
+	}
+
+}
+
 void loop() {
 //	tcregs();
 	
-	if(Serial.available()){
-		
-		start_motors(Serial.parseInt());
-		
+	int leftFeedbackVal = 0;
+	int rightFeedbackVal = 0;
+	
+	//if tractor is travelling forward read feedback from forward pins else read from reverse pins
+	if (direction == 0){
+		leftFeedbackVal = analogRead(leftForwardSensorPin);
+		rightFeedbackVal = analogRead(rightForwardSensorPin);
+	} else {
+		leftFeedbackVal = analogRead(leftReverseSensorPin);
+		rightFeedbackVal = analogRead(rightReverseSensorPin);
 	}
+	
+	//Calculate equivlent value from raw feedback values and pass new values to the feedback method
+	float  leftOutputVal = (float)leftFeedbackVal*(10.0/1023.0);
+	float  rightOutputVal = (float)rightFeedbackVal*(10.0/1023.0);
+	
+	feedback(leftOutputVal, 0);
+	feedback(leftOutputVal, 1);
+	
+	//Prints the left and right readings and duty cycles
+	Serial.print("Left reading: ");
+	Serial.print(leftOutputVal);
+	Serial.print(", Right reading: ");
+	Serial.println(rightOutputVal);
+	
+	Serial.print("Left duty cycle: ");
+	Serial.print(leftFloatingDutyCycle);
+	Serial.print("Right duty cycle: ");
+	Serial.println(rightFloatingDutyCycle);
+	
+	delay(300);
+	if(Serial.available()){
+		setDutyCycle = Serial.parseInt();
+		floatingDutyCycle = setDutyCycle;
+		start_motors(setDutyCycle);
+		start_pump(setDutyCycle);
+		//records if tractor is going forwards or backwards
+		if (setDutyCycle < 50){
+			direction = 1;
+		} else {
+			direction = 0;
+		}
+    
+	}
+	
 }
 
