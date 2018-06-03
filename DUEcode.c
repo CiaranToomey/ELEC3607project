@@ -53,13 +53,22 @@ unsigned int RC_clk = TIMER_COUNTER1 / FREQ;      //This is the value that RC ne
 int setDutyCycle = 50;
 int leftFloatingDutyCycle = 50;
 int rightFloatingDutyCycle = 50;
-int direction = 0;              //0 means forward, 1 means reverse
+int heading = 0;              //0 means forward, 1 means reverse
 
 // Interrupt sentinel variables
 volatile int IRled = 0;
 volatile int WIFIdata = 0;
 volatile int Water = 0;
 
+// GPS variables to determine difference in location for 5meter change in position and start position
+float differenceGPS = 0.00005;
+float lngStartPosition = 0;
+float latStartPosition = 0;
+
+// arrays to hold map data
+int indexDirection[4];
+int indexSpeed[4];
+int currentIndex = 0;
 // METHODS FOR CONTROLLING DIRECTION OF MOTORS. 
 
 void pwmwave(unsigned int duty, int channel, Tc *tc_num, int complementry) {
@@ -169,7 +178,7 @@ typedef enum
 } UART_State_t;
 
 
-UART_State_t txState = IDLE; // State register
+UART_State_t txState = START; // State register
 
 
 /* FSM state transition */
@@ -179,20 +188,51 @@ void uart_state_machine()
   {
     case START:
       // Process map 
-      // set PWM and Pump rate
+      txState = START;
+      while (gpsPort.available()) {
+      tinyGPS.encode(gpsPort.read());
+      }
+      if (tinyGPS.satellites.value() > 3) {
+      lngStartPosition = tinyGPS.location.lng();
+      latStartPosition = tinyGPS.location.lat();
       txState = RUN;
+      }
       break;
      // RUN state is the main state the program runs in. It Polls the GPS and prints the duty Cycle value
     case RUN:
     // prints dutyCycle
     Serial.println((int)((double)(LEFT_MOTOR_RA*100)/RC_clk)+1);
-
+    
     while (gpsPort.available()) {
       tinyGPS.encode(gpsPort.read());
     }
-    printGPSInfo();
     // code to process GPS info
-    delay(100);
+    float lngCurrentPosition = tinyGPS.location.lng();
+    float latCurrentPosition = tinyGPS.location.lat();
+    
+    if ((lngCurrentPosition - lngStartPosition) > differenceGPS) {
+      lngStartPosition = lngCurrentPosition;
+      currentIndex++;
+      if(indexDirection[currentIndex] == 2) {
+        turn_left();
+      } else if( indexDirection[currentIndex] == 3) {
+        turn_right();
+      }
+     
+      start_pump(indexSpeed[currentIndex]);
+      
+    } else if ((latCurrentPosition - latStartPosition) > differenceGPS) {
+      latStartPosition = latCurrentPosition;
+      currentIndex++;
+      if(indexDirection[currentIndex] == 2) {
+        turn_left();
+      } else if( indexDirection[currentIndex] == 3) {
+        turn_right();
+      }
+      start_pump(indexSpeed[currentIndex]);
+    }
+        
+    delay(50);
     break;
     // Interrupt state determines which interrupt was triggered and calls the corresponding handler
     case INTERRUPT:
@@ -228,11 +268,12 @@ void IRledHandler() {
 }
 // interprets the command from wifi and then calls appropriate functions 
 void WIFIdataHandler() {
-
+  
   if(Serial1.available()) {
+        txState = RUN;
         int count = 0;
         char command [2];
-        char number [] = {0,0};
+        char number [12];
         int val = 0;
         while(Serial1.available() > 0) { 
           if (count == 0) {
@@ -247,7 +288,21 @@ void WIFIdataHandler() {
           count++;
         }
         val = atoi(number);
-
+        
+        if (command[0] == 'M' && command[1] == 'D') {
+          txState = START;
+          for(int i = 0; i < 4; i++) {
+            indexDirection[i] = (int)number[i];    
+          }
+          int counter = 4;
+          for (int i = 0; i < 4; i++) {
+            
+            char temp[] = {number[counter],number[counter+1]};
+            int valTemp = atoi(temp);
+            indexSpeed[i] = valTemp;
+            counter = counter + 2;
+          }
+        }
 
         if (command[0] == 'D' && command[1] == 'C') {
           txState = RUN;
@@ -255,6 +310,7 @@ void WIFIdataHandler() {
         }
         if (command[0] == 'S' && command[1] == 'T') {
           stop_motors();
+          txState = IDLE;
         }
         if (command[0] == 'T' && command[1] == 'R') {
           turn_right();
@@ -265,8 +321,8 @@ void WIFIdataHandler() {
         
         
       }
+      
       delay(100);
-  txState = RUN;
 }
 // stops motors, prints warning
 void WaterHandler() {
@@ -401,7 +457,7 @@ void feedback(float val, int motorSelect) {
 
   //Checks to see if the feedback is greater than the upper bound and if the tractor is travelling forward reduce the duty cycle else increase it
   if (val > upper) {
-    if (direction == 0){
+    if (heading == 0){
       localDuty = floatingDutyCycle - 1;
     } else {
       localDuty = floatingDutyCycle + 1;
@@ -409,7 +465,7 @@ void feedback(float val, int motorSelect) {
 
   //Checks to see if the feedback is less than the lower bound and if the tractor is travelling forward increase the duty cycle else decrease it
   } else if(val < lower) {
-    if (direction == 0) {
+    if (heading == 0) {
       localDuty = floatingDutyCycle + 1; 
     } else {
       localDuty = floatingDutyCycle - 1; 
