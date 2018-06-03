@@ -89,7 +89,7 @@ void WIFIdataHandler() {
 
         if ((String)command == "DC") {
           txState = RUN;
-          start_motors(val);
+          start_motors(val,2);
         }
         if ((String)command == "ST") {
           stop_motors();
