@@ -1,7 +1,9 @@
-// sentinel variables
+// interrupt variables
 volatile int IRled = 0;
 volatile int WIFIdata = 0;
 volatile int Water = 0;
+
+
 
 /* UART FSM States */
 typedef enum
@@ -12,7 +14,9 @@ typedef enum
   INTERRUPT
 } UART_State_t;
 
+
 UART_State_t txState = IDLE; // State register
+
 
 /* FSM state transition */
 void uart_state_machine()
@@ -24,11 +28,12 @@ void uart_state_machine()
       // set PWM and Pump rate
       txState = RUN;
       break;
-    
     case RUN:
-      Serial.println("Run state");
-      delay(100);
-      break;
+    // prints duty 
+    Serial.println((int)((double)(LEFT_MOTOR_RA*100)/RC_clk)+1);
+
+    delay(100);
+    break;
     
     case INTERRUPT:
       txState = RUN;
@@ -47,7 +52,6 @@ void uart_state_machine()
       break;
     
     case IDLE:
-      Serial.println("IDLE state");
       delay(100);
       break;
     default:
@@ -55,24 +59,60 @@ void uart_state_machine()
   }
 }
 
+
 void IRledHandler() {
   // send signal over wifi
   Serial.println("IR led handler triggered!");
   txState = IDLE;
 }
 void WIFIdataHandler() {
-  //if initial data received
-  // txState = Start;
-  //if handling data received
-  // determine handler and change to appropriate state
-   Serial.println("WIFI handler triggered!");
+
+  if(Serial1.available()) {
+        int count = 0;
+        char command [2];
+        char number [] = {0,0};
+        int val = 0;
+        while(Serial1.available() > 0) { 
+          if (count == 0) {
+            command[0] = (char)Serial1.read();
+          } 
+          if (count == 1) {
+            command[1] = (char)Serial1.read();
+          }
+          if (count > 2) {
+            number[count-3] = (int)Serial1.read();
+          }
+          count++;
+        }
+        val = atoi(number);
+
+
+        if ((String)command == "DC") {
+          txState = RUN;
+          start_motors(val);
+        }
+        if ((String)command == "ST") {
+          stop_motors();
+        }
+        if ((String)command == "TR") {
+          turn_right();
+        }
+        if ((String)command == "TL") {
+          turn_left();
+        }
+        
+        
+      }
+      delay(100);
   txState = RUN;
 }
 void WaterHandler() {
-  // send signal over wifi
-  Serial.println("Water handler triggered!");
-  txState = RUN;
+  
+  Serial.println("WATER LEVEL LOW!");
+  txState = IDLE;
+  
 }
+
 
 void ISR_func_IRled() {
   IRled = 1;
@@ -87,20 +127,21 @@ void ISR_func_Water() {
   txState = INTERRUPT;
 }
 void setup() {
-  Serial.begin(9600);
-  // DUE does not allow INOUT port so these pins are connected together via a wire so that output of 24 
-  // can be read by pin 26, etc. 
-  pinMode(24, OUTPUT);
+  
+  Serial.begin(115200);
+  Serial1.begin(115200);
+  // setup of pins for interrupts 
   pinMode(26, INPUT);
-  pinMode(30, OUTPUT);
   pinMode(32,INPUT);
-  pinMode(36, OUTPUT);
   pinMode(38,INPUT);
+  
   attachInterrupt(26, ISR_func_IRled, RISING);
   attachInterrupt(38, ISR_func_WIFIdata, RISING);
-  attachInterrupt(32, ISR_func_Water, RISING);
+  attachInterrupt(32, ISR_func_Water, FALLING);
+
 
 }
+
 
 void loop() {
   uart_state_machine();
