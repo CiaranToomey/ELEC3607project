@@ -35,34 +35,34 @@ public class Client
             System.out.println(i);
         }
 
-        File file = new File("file.txt");
-        BufferedReader reader = null;
+//         File file = new File("file.txt");
+//         BufferedReader reader = null;
 
-        try {
-            reader = new BufferedReader(new FileReader(file));
-            String text = null;
+//         try {
+//             reader = new BufferedReader(new FileReader(file));
+//             String text = null;
 
-            while ((text = reader.readLine()) != null) {
-                // System.out.println(text);
-                try {
-                byte[] b = text.getBytes();
-                out.write(b);
-                } catch(IOException i) {
-                System.out.println(i);
-                }
-            }
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            try {
-                if (reader != null) {
-                    reader.close();
-                }
-            } catch (IOException e) {
-            }
-        }
+//             while ((text = reader.readLine()) != null) {
+//                 // System.out.println(text);
+//                 try {
+//                 byte[] b = text.getBytes();
+//                 out.write(b);
+//                 } catch(IOException i) {
+//                 System.out.println(i);
+//                 }
+//             }
+//         } catch (FileNotFoundException e) {
+//             e.printStackTrace();
+//         } catch (IOException e) {
+//             e.printStackTrace();
+//         } finally {
+//             try {
+//                 if (reader != null) {
+//                     reader.close();
+//                 }
+//             } catch (IOException e) {
+//             }
+//         }
 
 
         // string to read message from input
