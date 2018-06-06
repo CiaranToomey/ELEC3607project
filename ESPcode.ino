@@ -1,13 +1,17 @@
 #include<ESP8266WiFi.h>
 
-const char* ssid = "crom";    // This is Your Wifi SSID
-const char* pwd = "crumb123";   //This is Your WIFi Hotspot Password
+
+
+const char* ssid = "CPH1707";    // This is Your Wifi SSID
+const char* pwd = "12345678";   //This is Your WIFi Hotspot Password
 
 WiFiServer server(5000);           // 5000 is Your Port Number on which communication take place
 char data[250], dcr[250];          // For Data Recieve / Send
 int ind = 0 , icd=0;
 
-WiFiClient client;                //Socket get Connected through the Server
+//WiFiClient client;                //Socket for incoming data
+WiFiClient clients[2];
+
 
 void setup() {
   Serial.begin(115200);             //For Arduino Serial Communication
@@ -24,34 +28,49 @@ void setup() {
 }
 
 void loop() {
-  if(!client.connected()){    // Try to get a Client
-    client= server.available();
+  // Check if a new client has connected
+  WiFiClient newClient = server.available();
+  if (newClient) {
+    Serial.println("new client");
+    // Find the first unused space
+    for (int i=0 ; i<2 ; ++i) {
+        if (NULL == clients[i]) {
+            clients[i] = WiFiClient(newClient);
+            break;
+        }
+     }
   }
-  else{                     // When Client is Connected
+//  if(!client.connected()){    // Try to get a Client
+//    client= server.available();
+//  }
+  
+//  else{                     // When Client is Connected
     if(Serial.available()>0){
       while(Serial.available()){
         dcr[icd] = Serial.read();   // Get Data From Arduino to Buffer
         icd++;
       }
       for(int j=0;j<icd;j++){
-        client.print(dcr[j]);       //printing the Recieve data from ardunio to WIFI Socket
+        clients[1].print(dcr[j]);       //printing the Recieve data from ardunio to WIFI Socket
       }
     }
-    if(client.available()>0){
-      while(client.available()){     //run until data is available for reading
-        data[ind] = client.read();    //reading data
+    if(clients[0].available()>0){
+      while(clients[0].available()){     //run until data is available for reading
+        data[ind] = clients[0].read();    //reading data
         ind++;
       }
-      client.flush();
-      // if data[0] is 1 -> go to map data loop
-      // if data[0] is 2 -> send new speed value to arduino
+      clients[0].flush();
       for(int j=0;j<ind;j++){
         Serial.print(data[j]);      //printing/Sending Data to Ardunio
-        client.write(data[j]);
+        clients[1].print(data[j]);
       }
-      Serial.println();
+        Serial.println();      
     }
     icd=0;            //reset the buffer counter
     ind=0;            //reset the buffer counter
   }
-}
+
+//
+
+
+
