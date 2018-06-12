@@ -66,7 +66,7 @@ int setDutyCycle = 50;
 int leftFloatingDutyCycle = 50;
 int rightFloatingDutyCycle = 50;
 int heading = 0;              //0 means forward, 1 means reverse
-
+int feedbackSelect = 0;       //0 means open loop, 1 means closed loop
 
 // Interrupt sentinel variables
 volatile int IRled = 0;
@@ -110,49 +110,56 @@ void pwmwave(unsigned int duty, int channel, Tc *tc_num, int complementry) {
 //puts the left track in reverse and the right in forward for a period and then sets them back at their original values
 void turn_left() {
 
-
-  unsigned int current_duty_cycle = LEFT_MOTOR_RA;
-  LEFT_MOTOR_RA = 20;
-  LEFT_MOTOR_COMP_RA = 20;
-  RIGHT_MOTOR_RA = 80;
-  RIGHT_MOTOR_COMP_RA = 80;
-  
-  delay(2000);
-  
-  LEFT_MOTOR_RA = current_duty_cycle;
-  LEFT_MOTOR_COMP_RA = current_duty_cycle;
-  RIGHT_MOTOR_RA = current_duty_cycle;
-  RIGHT_MOTOR_COMP_RA = current_duty_cycle;
-  
+	unsigned int current_duty_cycle = LEFT_MOTOR_RA;
+  double forward_duty_cycle = (double)75*RC_clk/100;
+  double reverse_duty_cycle = (double)25*RC_clk/100;
+	LEFT_MOTOR_RA = reverse_duty_cycle;
+	LEFT_MOTOR_COMP_RA = reverse_duty_cycle;
+	RIGHT_MOTOR_RA = forward_duty_cycle;
+	RIGHT_MOTOR_COMP_RA = forward_duty_cycle;
+	
+	delay(1000);
+	
+	LEFT_MOTOR_RA = current_duty_cycle;
+	LEFT_MOTOR_COMP_RA = current_duty_cycle;
+	RIGHT_MOTOR_RA = current_duty_cycle;
+	RIGHT_MOTOR_COMP_RA = current_duty_cycle;
+	
 }
 
 
 //puts the left track in forward and the right in reverse for a period and then sets them back at their original values
 void turn_right() {
 
-
-  unsigned int current_duty_cycle = LEFT_MOTOR_RA;
-  LEFT_MOTOR_RA = 80;
-  LEFT_MOTOR_COMP_RA = 80;
-  RIGHT_MOTOR_RA = 20;
-  RIGHT_MOTOR_COMP_RA = 20;
-  
-  delay(2000);
-  
-  LEFT_MOTOR_RA = current_duty_cycle;
-  LEFT_MOTOR_COMP_RA = current_duty_cycle;
-  RIGHT_MOTOR_RA = current_duty_cycle;
-  RIGHT_MOTOR_COMP_RA = current_duty_cycle;
-  
+	unsigned int current_duty_cycle = LEFT_MOTOR_RA;
+  double forward_duty_cycle = (double)75*RC_clk/100;
+  double reverse_duty_cycle = (double)25*RC_clk/100;
+	LEFT_MOTOR_RA = forward_duty_cycle;
+	LEFT_MOTOR_COMP_RA = forward_duty_cycle;
+	RIGHT_MOTOR_RA = reverse_duty_cycle;
+	RIGHT_MOTOR_COMP_RA = reverse_duty_cycle;
+	
+	delay(1000);
+	
+	LEFT_MOTOR_RA = current_duty_cycle;
+	LEFT_MOTOR_COMP_RA = current_duty_cycle;
+	RIGHT_MOTOR_RA = current_duty_cycle;
+	RIGHT_MOTOR_COMP_RA = current_duty_cycle;
+	
 }
 
 
+
 void stop_motors() {
-    double duty_cycle = (double)50*RC_clk/100;
-  LEFT_MOTOR_RA = duty_cycle;
-  LEFT_MOTOR_COMP_RA = duty_cycle;
-  RIGHT_MOTOR_RA = duty_cycle;
-  RIGHT_MOTOR_COMP_RA = duty_cycle;
+
+  double duty_cycle = (double)50*RC_clk/100;
+	LEFT_MOTOR_RA = duty_cycle;
+	LEFT_MOTOR_COMP_RA = duty_cycle;
+	RIGHT_MOTOR_RA = duty_cycle;
+	RIGHT_MOTOR_COMP_RA = duty_cycle;
+  setDutyCycle = 50;
+  leftFloatingDutyCycle = 50;
+	rightFloatingDutyCycle = 50;
   
 }
 
@@ -237,6 +244,15 @@ void uart_state_machine()
     Serial.println((int)((double)(LEFT_MOTOR_RA*100)/RC_clk)+1);
     while (gpsPort.available()) {
       tinyGPS.encode(gpsPort.read());
+    }
+    if (feedbackSelect == 1){
+      //Check feedback for left motor
+  	  feedback(0);
+      //check feedback for right motor
+  	  feedback(1);
+    } else {
+      Serial.print("Duty cycle: ");
+      Serial.println(setDutyCycle);
     }
    // printGPSInfo();
     delay(100);
@@ -357,7 +373,9 @@ void WIFIdataHandler() {
         if (firstCommand == 'I' && secondCommand == 'N') {
           txState=START;
         }
-        
+        if (firstCommand == 'F' && secondCommand == 'B') {
+        feedbackSelect = val;
+        }
         
       }
  
@@ -461,93 +479,113 @@ SerialMonitor.begin(9600);
 
 
 //If motorSelect = 0, controls the feedback for the left motor. If motorSelect = 1, controls the feedback for the right motor
-//void feedback(float val, int motorSelect) {
-//
-//
-//  int floatingDutyCycle = 0;
-//  
-//  if (motorSelect == 0){
-//    floatingDutyCycle = leftFloatingDutyCycle;
-//  } else {
-//    floatingDutyCycle = rightFloatingDutyCycle;
-//  }
-//
-//
-//  int localDuty = floatingDutyCycle;
-//  double lower = 0;
-//  double upper = 0;
-//
-//
-////The switch statement determines the upper and lower limits of the feedback required for a given duty cycle
-//  switch(setDutyCycle) {
-//    case 70:
-//      lower = 0.35;
-//      upper = 0.45;
-//      break;
-//    case 75:
-//      lower = 0.9;
-//      upper = 1.1;
-//      break;
-//    case 80:
-//      lower = 1.8;
-//      upper = 2;
-//      break;
-//    case 20:
-//      lower = 1.9;
-//      upper = 2;
-//      break;
-//    case 25:
-//      lower = 1.15;
-//      upper = 1.35;
-//      break;
-//    case 30:
-//      lower = 0.7;
-//      upper = 0.8;
-//      break;
-//    default:
-//      break;
-//  }
-//
-//
-//  //Checks to see if the feedback is greater than the upper bound and if the tractor is travelling forward reduce the duty cycle else increase it
-//  if (val > upper) {
-//    if (heading == 0){
-//      localDuty = floatingDutyCycle - 1;
-//    } else {
-//      localDuty = floatingDutyCycle + 1;
-//    }
-//
-//
-//  //Checks to see if the feedback is less than the lower bound and if the tractor is travelling forward increase the duty cycle else decrease it
-//  } else if(val < lower) {
-//    if (heading == 0) {
-//      localDuty = floatingDutyCycle + 1; 
-//    } else {
-//      localDuty = floatingDutyCycle - 1; 
-//    }
-//  }
-//
-//
-//  //If the change in duty cycle is outside the limits of 20%-80% keep it with the bounds
-//  if (localDuty > 80) {
-//    localDuty = 80;
-//  }
-//  if (localDuty < 20) {
-//    localDuty = 20;
-//  }
-//
-//
-//  //adjust the speed of the motors and update the global variable floatingDutyCycle
-//  start_motors(localDuty, motorSelect);
-//  
-//  if (motorSelect == 0){
-//    leftFloatingDutyCycle = localDuty;
-//  } else {
-//    rightFloatingDutyCycle = localDuty;
-//  }
-//
-//
-//}
+void feedback(int motorSelect) {
+  
+  int analogueInput = 0;
+  int localDuty = 0;
+  
+  if ((motorSelect == 0) && (heading == 0)){
+    analogueInput = analogRead(leftForwardSensorPin);
+    localDuty = leftFloatingDutyCycle;
+  } else if  ((motorSelect == 0) && (heading == 1)){
+    analogueInput = analogRead(leftReverseSensorPin);
+    localDuty = leftFloatingDutyCycle;
+  } else if  ((motorSelect == 1) && (heading == 0)){
+    analogueInput = analogRead(rightForwardSensorPin);
+    localDuty = rightFloatingDutyCycle;
+  } else {
+    analogueInput = analogRead(rightReverseSensorPin);
+    localDuty = rightFloatingDutyCycle;
+  }
+  
+  //Calculate equivlent value from raw feedback values and pass new values to the feedback method
+  //float  val = (float)analogueInput*(10.0/1023.0);
+
+  //Prints the left and right readings and duty cycles
+  if (motorSelect == 0){
+    Serial.print("Left reading: ");
+    Serial.print(analogueInput);
+    Serial.print(", Left duty cycle: ");
+    Serial.println(leftFloatingDutyCycle);
+  } else {
+    Serial.print("Right reading: ");
+    Serial.print(analogueInput);
+    Serial.print(", Right duty cycle: ");
+    Serial.println(rightFloatingDutyCycle);
+  }
+  
+  double lower = 0;
+  double upper = 0;
+
+  if ((setDutyCycle > 30) && (setDutyCycle <70)){
+    return;
+  }
+  
+//The switch statement determines the upper and lower limits of the feedback required for a given duty cycle
+  switch(setDutyCycle) {
+    case 70:
+      lower = 140;
+      upper = 155;
+      break;
+    case 75:
+      lower = 200;
+      upper = 240;
+      break;
+    case 80:
+      lower = 270;
+      upper = 300;
+      break;
+    case 30:
+      lower = 110;
+      upper = 140;
+      break;
+    case 25:
+      lower = 200;
+      upper = 220;
+      break;
+    case 20:
+      lower = 240;
+      upper = 270;
+      break;
+    default:
+      break;
+  }
+
+  //Checks to see if the feedback is greater than the upper bound and if the tractor is travelling forward reduce the duty cycle else increase it
+  if (analogueInput > upper) {
+    if (heading == 0){
+      localDuty = localDuty - 1;
+    } else {
+      localDuty = localDuty + 1;
+    }
+
+  //Checks to see if the feedback is less than the lower bound and if the tractor is travelling forward increase the duty cycle else decrease it
+  } else if(analogueInput < lower) {
+    if (heading == 0) {
+      localDuty = localDuty + 1; 
+    } else {
+      localDuty = localDuty - 1; 
+    }
+  }
+
+  //If the change in duty cycle is outside the limits of 20%-85% keep it with the bounds
+  if (localDuty > 85) {
+    localDuty = 85;
+  }
+  if (localDuty < 15) {
+    localDuty = 15;
+  }
+
+
+  //adjust the speed of the motors and update the global variable floatingDutyCycle
+  start_motors(localDuty, motorSelect);
+  
+  if (motorSelect == 0){
+    leftFloatingDutyCycle = localDuty;
+  } else {
+    rightFloatingDutyCycle = localDuty;
+  }
+}
 
 
 void printGPSInfo()
@@ -570,5 +608,5 @@ void printGPSInfo()
 
 void loop() {
   uart_state_machine();
-  delay(100);
+	delay(300);
 }
