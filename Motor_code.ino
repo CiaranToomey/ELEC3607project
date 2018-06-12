@@ -47,7 +47,9 @@ unsigned int RC_clk = TIMER_COUNTER1 / FREQ;			//This is the value that RC needs
 int setDutyCycle = 50;
 int leftFloatingDutyCycle = 50;
 int rightFloatingDutyCycle = 50;
-int direction = 0;							//0 means forward, 1 means reverse
+int heading = 0;							//0 means forward, 1 means reverse
+int feedbackSelect = 0;       //0 means open loop, 1 means closed loop
+int printMessage = 0;          //0 means no message, 1 means low water, 2 means obstacle detected
 
 //parametre tc_num is a pointer to a Tc instance, parametre complementry identifies if it needs to set up a complementry waveform. If < 0 it's complementry,
 //if > 0 it's not and if == 0 it doesn't matter i.e. for the pump
@@ -70,6 +72,28 @@ void pwmwave(unsigned int duty, int channel, Tc *tc_num, int complementry) {
 
   TC_Start(tc_num, channel);
 }
+void ISR_func_Water() {
+  stop_motors();
+  stop_pump();
+  printMessage = 1;
+  
+}
+void ISR_func_IRled() {
+  stop_motors();
+  stop_pump();
+  printMessage = 2;
+  
+}
+
+void print_message(){
+
+  if (printMessage == 1){
+    Serial.println("Emergency stop, LOW WATER LEVELS");
+  } else if (printMessage == 2){
+    Serial.println("Emergency stop, OBSTACLE DETECTED");
+  }
+  printMessage = 0;
+}
 
 void setup() {
 
@@ -82,7 +106,11 @@ void setup() {
 
 	Serial.begin(9600);
 	pmc_set_writeprotect(false);
-
+  pinMode(26, INPUT);
+  pinMode(32,INPUT);
+  
+  attachInterrupt(26, ISR_func_IRled, RISING);
+  attachInterrupt(32, ISR_func_Water, FALLING);
 	//Serial.print (chanmask, BIN);
 
 	//enable output on PIO controller A, must bit shift a 0 for register ABSR to enable this PIO A register. All other PIO controllers need a 1
@@ -117,7 +145,7 @@ void setup() {
 	pwmwave(50, LEFT_MOTOR_COMP_CHAN, LEFT_TC, 1);
 	pwmwave(50, RIGHT_MOTOR_CHAN, RIGHT_TC, 0);
 	pwmwave(50, RIGHT_MOTOR_COMP_CHAN, RIGHT_TC, 1);
-	pwmwave(0, PUMP_CHAN, RIGHT_TC, 0);
+	pwmwave(1, PUMP_CHAN, RIGHT_TC, 0);
 
 	//Synchronise all channels from the timer counter specified
 	TC0_SYNC = 1;
@@ -129,10 +157,12 @@ void setup() {
 void turn_left() {
 
 	unsigned int current_duty_cycle = LEFT_MOTOR_RA;
-	LEFT_MOTOR_RA = 30;
-	LEFT_MOTOR_COMP_RA = 30;
-	RIGHT_MOTOR_RA = 70;
-	RIGHT_MOTOR_COMP_RA = 70;
+  double forward_duty_cycle = (double)75*RC_clk/100;
+  double reverse_duty_cycle = (double)25*RC_clk/100;
+	LEFT_MOTOR_RA = reverse_duty_cycle;
+	LEFT_MOTOR_COMP_RA = reverse_duty_cycle;
+	RIGHT_MOTOR_RA = forward_duty_cycle;
+	RIGHT_MOTOR_COMP_RA = forward_duty_cycle;
 	
 	delay(1000);
 	
@@ -147,10 +177,12 @@ void turn_left() {
 void turn_right() {
 
 	unsigned int current_duty_cycle = LEFT_MOTOR_RA;
-	LEFT_MOTOR_RA = 70;
-	LEFT_MOTOR_COMP_RA = 70;
-	RIGHT_MOTOR_RA = 30;
-	RIGHT_MOTOR_COMP_RA = 30;
+  double forward_duty_cycle = (double)75*RC_clk/100;
+  double reverse_duty_cycle = (double)25*RC_clk/100;
+	LEFT_MOTOR_RA = forward_duty_cycle;
+	LEFT_MOTOR_COMP_RA = forward_duty_cycle;
+	RIGHT_MOTOR_RA = reverse_duty_cycle;
+	RIGHT_MOTOR_COMP_RA = reverse_duty_cycle;
 	
 	delay(1000);
 	
@@ -162,17 +194,22 @@ void turn_right() {
 }
 
 void stop_motors() {
-	
-	LEFT_MOTOR_RA = 50;
-	LEFT_MOTOR_COMP_RA = 50;
-	RIGHT_MOTOR_RA = 50;
-	RIGHT_MOTOR_COMP_RA = 50;
-	
+
+  double duty_cycle = (double)50*RC_clk/100;
+	LEFT_MOTOR_RA = duty_cycle;
+	LEFT_MOTOR_COMP_RA = duty_cycle;
+	RIGHT_MOTOR_RA = duty_cycle;
+	RIGHT_MOTOR_COMP_RA = duty_cycle;
+  setDutyCycle = 50;
+  leftFloatingDutyCycle = 50;
+	rightFloatingDutyCycle = 50;
+  
 }
 
 void stop_pump() {
-	
-	PUMP_RA = 0;
+
+  double duty_cycle = (double)1*RC_clk/100;
+	PUMP_RA = duty_cycle;
 	
 }
 
@@ -181,12 +218,12 @@ void start_motors(unsigned int duty, int motorSelect) {
 	
 	double duty_cycle = (double)duty*RC_clk/100;
 	
-	if (motorSelect == 0) || (motorSelect == 2){
+	if ((motorSelect == 0) || (motorSelect == 2)){
 		LEFT_MOTOR_RA = duty_cycle;
 		LEFT_MOTOR_COMP_RA = duty_cycle;
 	}
 	
-	if (motorSelect == 1) || (motorSelect == 2){
+	if ((motorSelect == 1) || (motorSelect == 2)){
 		RIGHT_MOTOR_RA = duty_cycle;
 		RIGHT_MOTOR_COMP_RA = duty_cycle;
 	}
@@ -200,149 +237,178 @@ void start_pump(unsigned int duty) {
 	
 }
 
-//void dreg(char *s, unsigned int r) {
-//	Serial.print(s);
-//	Serial.print(r, HEX);
-//
-//}
-//
-//void tcregs()
-//{
-//	dreg("\n CV: ", LEFT_TC->TC_CHANNEL[LEFT_MOTOR_CHAN].TC_CV);
-//	dreg(" SR: ", LEFT_TC->TC_CHANNEL[LEFT_MOTOR_CHAN].TC_SR);
-//	dreg(" CMR: ", LEFT_TC->TC_CHANNEL[LEFT_MOTOR_CHAN].TC_CMR);
-//	dreg(" RA: ", LEFT_TC->TC_CHANNEL[LEFT_MOTOR_CHAN].TC_RA);
-//	dreg(" RC: ", LEFT_TC->TC_CHANNEL[LEFT_MOTOR_CHAN].TC_RC);
-//}
-
 //If motorSelect = 0, controls the feedback for the left motor. If motorSelect = 1, controls the feedback for the right motor
-void feedback(float val, int motorSelect) {
+void feedback(int motorSelect) {
+  
+  int analogueInput = 0;
+  int localDuty = 0;
+  
+  if ((motorSelect == 0) && (heading == 0)){
+    analogueInput = analogRead(leftForwardSensorPin);
+    localDuty = leftFloatingDutyCycle;
+  } else if  ((motorSelect == 0) && (heading == 1)){
+    analogueInput = analogRead(leftReverseSensorPin);
+    localDuty = leftFloatingDutyCycle;
+  } else if  ((motorSelect == 1) && (heading == 0)){
+    analogueInput = analogRead(rightForwardSensorPin);
+    localDuty = rightFloatingDutyCycle;
+  } else {
+    analogueInput = analogRead(rightReverseSensorPin);
+    localDuty = rightFloatingDutyCycle;
+  }
 
-	int floatingDutyCycle = 0;
-	
-	if (motorSelect == 0){
-		floatingDutyCycle = leftFloatingDutyCycle;
-	} else {
-		floatingDutyCycle = rightFloatingDutyCycle;
-	}
+  //Prints the left and right readings and duty cycles
+  if (motorSelect == 0){
+    Serial.print("Left reading: ");
+    Serial.print(analogueInput);
+    Serial.print(", Left duty cycle: ");
+    Serial.println(leftFloatingDutyCycle);
+  } else {
+    Serial.print("Right reading: ");
+    Serial.print(analogueInput);
+    Serial.print(", Right duty cycle: ");
+    Serial.println(rightFloatingDutyCycle);
+  }
+  
+  double lower = 0;
+  double upper = 0;
 
-	int localDuty = floatingDutyCycle;
-	double lower = 0;
-	double upper = 0;
-
+  if ((setDutyCycle > 30) && (setDutyCycle <70)){
+    return;
+  }
+  
 //The switch statement determines the upper and lower limits of the feedback required for a given duty cycle
-	switch(setDutyCycle) {
-		case 70:
-			lower = 0.35;
-			upper = 0.45;
-			break;
-		case 75:
-			lower = 0.9;
-			upper = 1.1;
-			break;
-		case 80:
-			lower = 1.8;
-			upper = 2;
-			break;
-		case 20:
-			lower = 1.9;
-			upper = 2;
-			break;
-		case 25:
-			lower = 1.15;
-			upper = 1.35;
-			break;
-		case 30:
-			lower = 0.7;
-			upper = 0.8;
-			break;
-		default:
-			break;
-	}
+  switch(setDutyCycle) {
+    case 70:
+      lower = 140;
+      upper = 155;
+      break;
+    case 75:
+      lower = 200;
+      upper = 240;
+      break;
+    case 80:
+      lower = 270;
+      upper = 300;
+      break;
+    case 30:
+      lower = 110;
+      upper = 140;
+      break;
+    case 25:
+      lower = 200;
+      upper = 220;
+      break;
+    case 20:
+      lower = 240;
+      upper = 270;
+      break;
+    default:
+      break;
+  }
 
-	//Checks to see if the feedback is greater than the upper bound and if the tractor is travelling forward reduce the duty cycle else increase it
-	if (val > upper) {
-		if (direction == 0){
-			localDuty = floatingDutyCycle - 1;
-		} else {
-			localDuty = floatingDutyCycle + 1;
-		}
+  //Checks to see if the feedback is greater than the upper bound and if the tractor is travelling forward reduce the duty cycle else increase it
+  if (analogueInput > upper) {
+    if (heading == 0){
+      localDuty = localDuty - 1;
+    } else {
+      localDuty = localDuty + 1;
+    }
 
-	//Checks to see if the feedback is less than the lower bound and if the tractor is travelling forward increase the duty cycle else decrease it
-	} else if(val < lower) {
-		if (direction == 0) {
-			localDuty = floatingDutyCycle + 1; 
-		} else {
-			localDuty = floatingDutyCycle - 1; 
-		}
-	}
+  //Checks to see if the feedback is less than the lower bound and if the tractor is travelling forward increase the duty cycle else decrease it
+  } else if(analogueInput < lower) {
+    if (heading == 0) {
+      localDuty = localDuty + 1; 
+    } else {
+      localDuty = localDuty - 1; 
+    }
+  }
 
-	//If the change in duty cycle is outside the limits of 20%-80% keep it with the bounds
-	if (localDuty > 80) {
-		localDuty = 80;
-	}
-	if (localDuty < 20) {
-		localDuty = 20;
-	}
+  //If the change in duty cycle is outside the limits of 20%-85% keep it with the bounds
+  if (localDuty > 85) {
+    localDuty = 85;
+  }
+  if (localDuty < 15) {
+    localDuty = 15;
+  }
 
-	//adjust the speed of the motors and update the global variable floatingDutyCycle
-	start_motors(localDuty, motorSelect);
-	
-	if (motorSelect == 0){
-		leftFloatingDutyCycle = localDuty;
-	} else {
-		rightFloatingDutyCycle = localDuty;
-	}
+  //adjust the speed of the motors and update the global variable floatingDutyCycle
+  start_motors(localDuty, motorSelect);
+  
+  if (motorSelect == 0){
+    leftFloatingDutyCycle = localDuty;
+  } else {
+    rightFloatingDutyCycle = localDuty;
+  }
+}
 
+void parse_command(){
+  int count = 0;
+  char firstCommand;
+  char secondCommand;
+  char number [2];
+  int val = 0;
+  while(Serial.available() > 0) { 
+    if (count == 0) {
+      firstCommand = (char)Serial.read();
+    } 
+    if (count == 1) {
+      secondCommand = (char)Serial.read();
+    }
+    if (count > 1) {
+      number[count-2] = Serial.read();
+    }
+    count++;
+  }
+  Serial.println();
+  Serial.println("received data");
+  val = atoi(number);       
+  
+  if (firstCommand == 'D' && secondCommand == 'C') {
+    start_motors(val,2);
+    setDutyCycle = val;
+    leftFloatingDutyCycle = val;
+    rightFloatingDutyCycle = val;
+    //records if tractor is going forwards or backwards
+    if (val < 50){
+      heading = 1;
+    } else {
+      heading = 0;
+    }
+  }
+  if (firstCommand == 'S' && secondCommand == 'T') {
+    stop_motors();
+    stop_pump();
+  }
+  if (firstCommand == 'T' && secondCommand == 'R') {
+    turn_right();
+  }
+  if (firstCommand == 'T' && secondCommand == 'L') {
+    turn_left();
+  }
+  if (firstCommand == 'S' && secondCommand == 'P') {
+    start_pump(val);
+  }
+  if (firstCommand == 'F' && secondCommand == 'B') {
+    feedbackSelect = val;
+  }
 }
 
 void loop() {
-//	tcregs();
+  print_message();
+  if (feedbackSelect == 1){
+    //Check feedback for left motor
+  	feedback(0);
+    //check feedback for right motor
+  	feedback(1);
+  } else {
+    Serial.print("Duty cycle: ");
+    Serial.println(setDutyCycle);
+  }
 	
-	int leftFeedbackVal = 0;
-	int rightFeedbackVal = 0;
-	
-	//if tractor is travelling forward read feedback from forward pins else read from reverse pins
-	if (direction == 0){
-		leftFeedbackVal = analogRead(leftForwardSensorPin);
-		rightFeedbackVal = analogRead(rightForwardSensorPin);
-	} else {
-		leftFeedbackVal = analogRead(leftReverseSensorPin);
-		rightFeedbackVal = analogRead(rightReverseSensorPin);
-	}
-	
-	//Calculate equivlent value from raw feedback values and pass new values to the feedback method
-	float  leftOutputVal = (float)leftFeedbackVal*(10.0/1023.0);
-	float  rightOutputVal = (float)rightFeedbackVal*(10.0/1023.0);
-	
-	feedback(leftOutputVal, 0);
-	feedback(leftOutputVal, 1);
-	
-	//Prints the left and right readings and duty cycles
-	Serial.print("Left reading: ");
-	Serial.print(leftOutputVal);
-	Serial.print(", Right reading: ");
-	Serial.println(rightOutputVal);
-	
-	Serial.print("Left duty cycle: ");
-	Serial.print(leftFloatingDutyCycle);
-	Serial.print("Right duty cycle: ");
-	Serial.println(rightFloatingDutyCycle);
-	
-	delay(300);
-	if(Serial.available()){
-		setDutyCycle = Serial.parseInt();
-		floatingDutyCycle = setDutyCycle;
-		start_motors(setDutyCycle);
-		start_pump(setDutyCycle);
-		//records if tractor is going forwards or backwards
-		if (setDutyCycle < 50){
-			direction = 1;
-		} else {
-			direction = 0;
-		}
-    
-	}
-	
+   delay(300);
+   if (Serial.available()){
+      parse_command();
+    }
 }
 
